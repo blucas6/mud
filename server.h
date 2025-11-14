@@ -306,14 +306,6 @@ char* handle_client_data(int fd, ClientPkg *clientpkg, ServerData *serverdata)
    return command;
 }
 
-void process_command(int fd, char* cmd)
-{
-   char *usrcmd = lower(cmd);
-   char *response = handle_command(usrcmd);
-   reply(fd, "", 0, response, 0);
-}
-
-
 /* Handle client interactions */
 ClientPkg* get_client_data(int fd, fd_set *master, ServerData *serverdata)
 {
@@ -340,79 +332,6 @@ ClientPkg* get_client_data(int fd, fd_set *master, ServerData *serverdata)
       close_socket(fd, master, serverdata);
    }
    return clientpkg;
-}
-
-void *server_loop(void *args)
-{
-   ServerData *serverdata = (ServerData*)args;
-   printf("Server starting...\n");
-
-   fd_set master;
-   fd_set read_fds;
-   int fdmax;
-   int listener;
-
-   // clear entries
-   FD_ZERO(&master);
-   FD_ZERO(&read_fds);
-
-   FD_SET(serverdata->efd, &master);
-   fdmax = serverdata->efd;
-
-   // listens for new connections
-   listener = get_listener_socket(serverdata);
-   // add socket to set
-   FD_SET(listener, &master);
-
-   fdmax = listener;
-
-   serverdata->listeneridx = listener;
-
-   while (1)
-   {
-      uint64_t signal = 0;
-      // copy socket list
-      read_fds = master;
-
-      if (select(fdmax+1, &read_fds, NULL, NULL, NULL) == -1)
-      {
-         perror("Failed to poll sockets");
-         break;
-      }
-
-      for (int i=0; i <= fdmax; i++)
-      {
-         // if socket is still in the read set
-         if (FD_ISSET(i, &read_fds))
-         {
-            if (i == listener)
-            {
-               // new connection
-               handle_new_connection(i, &master, &fdmax, serverdata);
-            }
-            else if (i == serverdata->efd)
-            {
-               read(serverdata->efd, &signal, sizeof(signal));
-            }
-            else
-            {
-               // client sent data
-               ClientPkg *clientpkg = get_client_data(i, &master, serverdata);
-               char* command = handle_client_data(i, clientpkg, serverdata);
-               if (strlen(command) > 0)
-               {
-                  process_command(i, command);
-               }
-               free(clientpkg);
-               free(command);
-            }
-         }
-      }
-      if (signal == 1)
-         break;
-   }
-   printf("Server closing...\n");
-   return NULL;
 }
 
 #endif

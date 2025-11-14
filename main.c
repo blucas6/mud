@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "manager.h"
 #include "server.h"
-#include "game.h"
 
 int main(void)
 {
@@ -12,7 +12,6 @@ int main(void)
    {
       return 1;
    }
-
    pthread_t game_thread, server_thread;
    pthread_create(&server_thread, NULL, server_loop, &serverdata);
    pthread_create(&game_thread, NULL, game_loop, &serverdata);
@@ -32,6 +31,7 @@ int main(void)
          printf("Not a valid server command\n");
       }
    }
+
    uint64_t signal = 1;
    write(serverdata.efd, &signal, sizeof(uint64_t));
    pthread_mutex_lock(&serverdata.lock);

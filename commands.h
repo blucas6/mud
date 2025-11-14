@@ -16,23 +16,4 @@ char* lower(char *cmd)
    return lcmd;
 }
 
-char* handle_command(char* usrcmd)
-{
-   int res_size = 256;
-   char *response = malloc(res_size);
-   char *syscmd;
-
-   syscmd = "hello";
-   if (strcmp(usrcmd, syscmd) == 0)
-   {
-      response = "Hello, there!";
-   }
-   else
-   {
-      response = "Hm, I don't know that one.";
-   }
-   free(usrcmd);
-   return response;
-}
-
 #endif

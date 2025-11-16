@@ -14,6 +14,7 @@
 #include <sys/eventfd.h>
 
 #include "commands.h"
+#include "game.h"
 
 #define PORT "8888"
 #define IP "127.0.0.1"
@@ -35,6 +36,7 @@
 #define MAX_H 80
 
 #define MAX_CLIENTS 8
+#define STATUSBAR 30
 
 typedef struct {
    int nbytes;
@@ -46,7 +48,6 @@ typedef struct {
    int height;
    char inputbuf[256];
    int inputcount;
-   pthread_mutex_t lock;
 } ClientData;
 
 typedef struct {
@@ -55,6 +56,7 @@ typedef struct {
    int listeneridx;
    int clientlist[MAX_CLIENTS];
    ClientData clientdata[MAX_CLIENTS];
+   int count;
    pthread_mutex_t lock;
 } ServerData;
 
@@ -64,13 +66,13 @@ void clientdata_init(ClientData *client)
    client->height = 0;
    memset(client->inputbuf, 0, sizeof(client->inputbuf));
    client->inputcount = 0;
-   pthread_mutex_init(&client->lock, NULL);
 }
 
 int serverdata_init(ServerData *serverdata)
 {
    serverdata->signal = 0;
    serverdata->efd = eventfd(0,0);
+   serverdata->count = 0;
    pthread_mutex_init(&serverdata->lock, NULL);
    if (serverdata->efd == -1)
    {
@@ -87,17 +89,22 @@ int serverdata_init(ServerData *serverdata)
 
 void close_socket(int fd, fd_set *master, ServerData *serverdata)
 {
-   pthread_mutex_lock(&serverdata->clientdata[fd].lock);
-   serverdata->clientlist[fd] = 0;
-   clientdata_init(&serverdata->clientdata[fd]);
-   pthread_mutex_unlock(&serverdata->clientdata[fd].lock);
-   close(fd);
-   // remove from master list
-   FD_CLR(fd, master);
+   printf("Closing socket %d\n", fd);
+   for (int i=0; i<MAX_CLIENTS; i++)
+   {
+      if (serverdata->clientlist[i] == fd)
+      {
+         serverdata->clientlist[i] = 0;
+         clientdata_init(&serverdata->clientdata[i]);
+         close(fd);
+         // remove from master list
+         FD_CLR(fd, master);
+      }
+   }
 }
 
 /* Adds a connection to the master list */
-void handle_new_connection(int listener, fd_set *master, int *fdmax, ServerData *serverdata) 
+int handle_new_connection(int listener, fd_set *master, int *fdmax, ServerData *serverdata) 
 {
    socklen_t addrlen;
    int newfd;
@@ -108,68 +115,94 @@ void handle_new_connection(int listener, fd_set *master, int *fdmax, ServerData 
    if (newfd == -1)
    {
       perror("Failed to accept socket");
+      return -1;
    }
-   else if (newfd >= MAX_CLIENTS)
+   pthread_mutex_lock(&serverdata->lock);
+   if (serverdata->count >= MAX_CLIENTS)
    {
+      pthread_mutex_unlock(&serverdata->lock);
       printf("Warning: cannot handle new connection!\n");
       printf("List of clients full! %d -> %d\n", newfd, MAX_CLIENTS);
       close_socket(newfd, master, serverdata);
+      return -1;
    }
-   else
+   // add valid client to master list
+   FD_SET(newfd, master);
+   if (newfd > *fdmax)
+      *fdmax = newfd;
+
+   int count = serverdata->count;
+   // lock client before editing server data
+   serverdata->clientlist[count] = newfd;
+   serverdata->clientdata[count].width = 0;
+   serverdata->clientdata[count].height = 0;
+   serverdata->clientdata[count].inputcount = 0;
+   serverdata->count++;
+   printf("Client List: [");
+   for (int i=0; i<MAX_CLIENTS; i++)
    {
-      // add valid client to master list
-      FD_SET(newfd, master);
-      if (newfd > *fdmax)
-         *fdmax = newfd;
-
-      // lock client before editing server data
-      pthread_mutex_lock(&serverdata->clientdata[newfd].lock);
-      serverdata->clientlist[newfd] = newfd;
-      serverdata->clientdata[newfd].width = 0;
-      serverdata->clientdata[newfd].height = 0;
-      serverdata->clientdata[newfd].inputcount = 0;
-      printf("Client List: [");
-      for (int i=0; i<MAX_CLIENTS; i++)
-      {
-         printf("%d ", serverdata->clientlist[i]);
-      }
-      printf("]\n");
-      pthread_mutex_unlock(&serverdata->clientdata[newfd].lock);
-
-      // print ip 
-      struct sockaddr_in *sa = (struct sockaddr_in*)&remoteaddr;
-      char buf[20];
-      const char *ip = inet_ntop(remoteaddr.ss_family, &(sa->sin_addr), buf, sizeof(buf));
-      printf("New connection from %s on socket %d\n", ip, newfd);
-
-      // send telnet NAWS negotiation
-      unsigned char cmd[] = { IAC, DO, TELOPT_NAWS, IAC, WILL, ECHO, IAC, DO, SUPRESS, IAC, DO, LINEMODE};
-      send(newfd, cmd, sizeof(cmd), 0);
-
-      // greeting
-      char *greeting = "Hello, you are connected\n\r";
-      send(newfd, greeting, strlen(greeting), 0);
+      printf("%d ", serverdata->clientlist[i]);
    }
+   printf("]\n");
+
+   // print ip 
+   struct sockaddr_in *sa = (struct sockaddr_in*)&remoteaddr;
+   char buf[20];
+   const char *ip = inet_ntop(remoteaddr.ss_family, &(sa->sin_addr), buf, sizeof(buf));
+   printf("New connection from %s on socket %d\n", ip, newfd);
+
+   // send telnet NAWS negotiation
+   unsigned char cmd[] = { IAC, DO, TELOPT_NAWS,
+                           IAC, WILL, ECHO,
+                           IAC, DO, SUPRESS,
+                           IAC, DO, LINEMODE };
+   send(newfd, cmd, sizeof(cmd), 0);
+   pthread_mutex_unlock(&serverdata->lock);
+   return newfd;
 }
 
-int reply(int fd, char *inputbuffer, int inputcount, char *reply, int sendinput)
+/* Send back a message to the client with formatting */
+int reply(int fd, char *inputbuffer, int inputcount, char *rmsg, int sendinput, PlayerData *pd)
 {
+   // total message
    char msg[256];
    int pos = 0;
-   if (sendinput && inputcount > 0)
+
+   msg[pos++] = '\n';
+   msg[pos++] = '\r';
+
+   if (sendinput)
    {
       msg[pos++] = '\n';
       msg[pos++] = '\r';
    }
-   memcpy(msg+pos, reply, strlen(reply));
-   pos += strlen(reply);
+
+   // copy the message
+   memcpy(msg+pos, rmsg, strlen(rmsg));
+   pos += strlen(rmsg);
    msg[pos++] = '\n';
    msg[pos++] = '\r';
+   msg[pos++] = '\n';
+   msg[pos++] = '\r';
+
+   // put the status bar back
+   char status[STATUSBAR];
+   memset(status, ' ', sizeof(status));
+   if (snprintf(status, sizeof(status), "[ %s Lv.%.2d $%.3d ]>", pd->name, pd->level, pd->money) <= 0) {
+      perror("Status bar failed");
+      return 1;
+   }
+
+   memcpy(msg+pos, status, strlen(status));
+   pos += strlen(status);
+
+   // put back what the client was typing
    if (sendinput && inputcount > 0)
    {
       memcpy(msg+pos, inputbuffer, inputcount);
       pos += inputcount;
    }
+
    if (send(fd, msg, pos, 0) == -1)
    {
       perror("Reply failed");
@@ -179,7 +212,7 @@ int reply(int fd, char *inputbuffer, int inputcount, char *reply, int sendinput)
 }
 
 /* Creates a socket to listen for connections */
-int get_listener_socket(ServerData* serverdata)
+int get_listener_socket()
 {
    struct addrinfo hints, *ai, *p;
    int listener;
@@ -225,23 +258,17 @@ int get_listener_socket(ServerData* serverdata)
       return 1;
    }
 
-   pthread_mutex_lock(&serverdata->clientdata[listener].lock);
-   serverdata->clientlist[listener] = listener;
-   pthread_mutex_unlock(&serverdata->clientdata[listener].lock);
-
    return listener;
 }
 
 void set_client_wh(int fd, int width, int height, ClientData *client)
 {
    printf("Client %d settings: %dx%d\n", fd, width, height);
-   pthread_mutex_lock(&client->lock);
    client->width = width;
    client->height = height;
-   pthread_mutex_unlock(&client->lock);
 }
 
-char* handle_client_data(int fd, ClientPkg *clientpkg, ServerData *serverdata)
+char* handle_client_data(int fd, ClientPkg *clientpkg, ClientData *client)
 {
    int commandsz = 256;
    char *command = malloc(commandsz);
@@ -255,8 +282,6 @@ char* handle_client_data(int fd, ClientPkg *clientpkg, ServerData *serverdata)
       printf("%d ", buf[i]);
    }
    printf("]\n");
-
-   ClientData *client = &serverdata->clientdata[fd];
 
    // NAWS accepted
    if (buf[0] == IAC && buf[1] == WILL && buf[2] == TELOPT_NAWS
@@ -275,16 +300,16 @@ char* handle_client_data(int fd, ClientPkg *clientpkg, ServerData *serverdata)
    // Back space character
    else if (buf[0] == 8 || buf[0] == 127)
    {
-      pthread_mutex_lock(&client->lock);
-      client->inputbuf[client->inputcount--] = ' ';
-      send(fd, "\b \b", 3, 0);
-      pthread_mutex_unlock(&client->lock);
+      if (client->inputcount > 0)
+      {
+         client->inputbuf[client->inputcount--] = ' ';
+         send(fd, "\b \b", 3, 0);
+      }
    }
    // Command sent
    else if(buf[0] == '\r')
    {
       // send back newline
-      pthread_mutex_lock(&client->lock);
       send(fd, "\r\n", 2, 0);
       // handle command
       client->inputbuf[client->inputcount++] = '\0';
@@ -293,15 +318,12 @@ char* handle_client_data(int fd, ClientPkg *clientpkg, ServerData *serverdata)
       // clear input buffer
       client->inputbuf[0] = '\0';
       client->inputcount = 0;
-      pthread_mutex_unlock(&client->lock);
    }
    // Single character input - save to input buffer
    else
    {
-      pthread_mutex_lock(&client->lock);
       client->inputbuf[client->inputcount++] = buf[0];
       send(fd, buf, 1, 0);
-      pthread_mutex_unlock(&client->lock);
    }
    return command;
 }

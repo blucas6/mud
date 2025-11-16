@@ -2,19 +2,22 @@
 #include <stdlib.h>
 #include <string.h>
 #include "manager.h"
+#include "game.h"
 #include "server.h"
 
 int main(void)
 {
-   // define server data
-   ServerData serverdata;
-   if (serverdata_init(&serverdata))
+   ThreadArgs threadargs;
+   if (serverdata_init(&threadargs.serverdata))
    {
       return 1;
    }
+
+   activeplayers_init(&threadargs.activeplayers);
+
    pthread_t game_thread, server_thread;
-   pthread_create(&server_thread, NULL, server_loop, &serverdata);
-   pthread_create(&game_thread, NULL, game_loop, &serverdata);
+   pthread_create(&server_thread, NULL, server_loop, &threadargs);
+   pthread_create(&game_thread, NULL, game_loop, &threadargs);
 
    char buffer[100];
    while (1)
@@ -22,7 +25,7 @@ int main(void)
       fgets(buffer, sizeof(buffer), stdin);
       
       // close the server
-      if (strcmp(buffer, "close\n") == 0)
+      if (strcmp(buffer, "quit\n") == 0)
       {
          break;
       }
@@ -32,11 +35,12 @@ int main(void)
       }
    }
 
+   printf("Shutting down...\n");
    uint64_t signal = 1;
-   write(serverdata.efd, &signal, sizeof(uint64_t));
-   pthread_mutex_lock(&serverdata.lock);
-   serverdata.signal = signal;
-   pthread_mutex_unlock(&serverdata.lock);
+   write(threadargs.serverdata.efd, &signal, sizeof(uint64_t));
+   pthread_mutex_lock(&threadargs.serverdata.lock);
+   threadargs.serverdata.signal = signal;
+   pthread_mutex_unlock(&threadargs.serverdata.lock);
    pthread_join(server_thread, NULL);
    pthread_join(game_thread, NULL);
 }

@@ -45,6 +45,13 @@ void update_screen(char screen[MAX_H][MAX_W], int curr_w, int curr_h)
    }
 }
 
+char* get_status_bar()
+{
+   int space = 20;
+   char *res = malloc(space);
+   res = 
+}
+
 /*
 int save(int fd, char screen[MAX_H][MAX_W], ServerData *serverdata)
 {

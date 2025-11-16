@@ -4,7 +4,12 @@
 #include "server.h"
 #include "game.h"
 
-void process_command(int fd, char* cmd, fd_set *master, ServerData *serverdata)
+typedef struct {
+   ServerData serverdata;
+   ActivePlayers activeplayers;
+} ThreadArgs;
+
+void process_command(int fd, char* cmd, fd_set *master, ServerData *serverdata, PlayerData *pd)
 {
    char *usrcmd = lower(cmd);
    char *response;
@@ -12,24 +17,33 @@ void process_command(int fd, char* cmd, fd_set *master, ServerData *serverdata)
    if (strcmp(usrcmd, "hello") == 0)
    {
       response = "Hello, there!";
-      reply(fd, "", 0, response, 0);
+      reply(fd, "", 0, response, 0, pd);
    }
    else if (strcmp(usrcmd, "quit") == 0)
    {
       response = "Goodbye!";
-      reply(fd, "", 0, response, 0);
+      reply(fd, "", 0, response, 0, pd);
       close_socket(fd, master, serverdata);
+   }
+   else if (strcmp(usrcmd, "greeting") == 0)
+   {
+      response = "Hello, you are connected\n\r";
+      reply(fd, "", 0, response, 0, pd);
    }
    else
    {
       response = "Hm, I don't know that one.";
+      reply(fd, "", 0, response, 0, pd);
    }
    free(usrcmd);
 }
 
 void *server_loop(void *args)
 {
-   ServerData *serverdata = (ServerData*)args;
+   ThreadArgs *threadargs = (ThreadArgs*)args;
+   ServerData *serverdata = &threadargs->serverdata;
+   ActivePlayers *activeplayers = &threadargs->activeplayers;
+
    printf("Server starting...\n");
 
    fd_set master;
@@ -42,16 +56,25 @@ void *server_loop(void *args)
    FD_ZERO(&read_fds);
 
    // add event fd to set
+   pthread_mutex_lock(&serverdata->lock);
    FD_SET(serverdata->efd, &master);
    fdmax = serverdata->efd;
 
    // listens for new connections
-   listener = get_listener_socket(serverdata);
+   listener = get_listener_socket();
+   serverdata->clientlist[0] = listener;
+   serverdata->count++;
+   serverdata->listeneridx = 0;
+   pthread_mutex_lock(&activeplayers->lock);
+   activeplayers->count++;
+   pthread_mutex_unlock(&activeplayers->lock);
 
    // add socket to set
    FD_SET(listener, &master);
    fdmax = listener;
-   serverdata->listeneridx = listener;
+   pthread_mutex_unlock(&serverdata->lock);
+
+   printf("Done setting up listener socket\n");
 
    while (1)
    {
@@ -65,32 +88,60 @@ void *server_loop(void *args)
          break;
       }
 
-      for (int i=0; i <= fdmax; i++)
+      for (int fd=0; fd <= fdmax; fd++)
       {
          // if socket is still in the read set
-         if (FD_ISSET(i, &read_fds))
+         if (FD_ISSET(fd, &read_fds))
          {
-            if (i == listener)
+            // listener socket
+            if (fd == listener)
             {
                // new connection
-               handle_new_connection(i, &master, &fdmax, serverdata);
+               int newfd = handle_new_connection(fd, &master, &fdmax, serverdata);
+               if (newfd != -1)
+               {
+                  printf("Creating new player\n");
+                  pthread_mutex_lock(&activeplayers->lock);
+                  int count = activeplayers->count;
+                  PlayerData *pd = &activeplayers->players[count];
+                  new_player_init(pd);
+                  process_command(newfd, "greeting", &master, serverdata, pd);
+                  pthread_mutex_unlock(&activeplayers->lock);
+               }
+               else
+               {
+                  printf("Failed to create new player\n");
+               }
+               continue;
             }
-            else if (i == serverdata->efd)
+            // event socket
+            pthread_mutex_lock(&serverdata->lock);
+            if (fd == serverdata->efd)
             {
                read(serverdata->efd, &signal, sizeof(signal));
+               pthread_mutex_unlock(&serverdata->lock);
+               continue;
             }
-            else
+            // client socket
+            ClientPkg *clientpkg = get_client_data(fd, &master, serverdata);
+            for (int ix=0; ix<MAX_CLIENTS; ix++)
             {
-               // client sent data
-               ClientPkg *clientpkg = get_client_data(i, &master, serverdata);
-               char* command = handle_client_data(i, clientpkg, serverdata);
-               if (strlen(command) > 0)
+               if (serverdata->clientlist[ix] == fd)
                {
-                  process_command(i, command, &master, serverdata);
+                  ClientData *client = &serverdata->clientdata[ix];
+                  pthread_mutex_lock(&activeplayers->lock);
+                  PlayerData *pd = &activeplayers->players[ix];
+                  char* command = handle_client_data(fd, clientpkg, client);
+                  if (strlen(command) > 0)
+                  {
+                     process_command(fd, command, &master, serverdata, pd);
+                  }
+                  free(command);
+                  pthread_mutex_unlock(&activeplayers->lock);
                }
-               free(clientpkg);
-               free(command);
             }
+            free(clientpkg);
+            pthread_mutex_unlock(&serverdata->lock);
          }
       }
       if (signal == 1)
@@ -102,8 +153,11 @@ void *server_loop(void *args)
 
 void *game_loop(void *args)
 {
+   ThreadArgs *threadargs = (ThreadArgs*)args;
+   ServerData *serverdata = &threadargs->serverdata;
+   ActivePlayers *activeplayers = &threadargs->activeplayers;
+
    printf("Game thread starting...\n");
-   ServerData *serverdata = (ServerData*)args;
    while (1)
    {
       // check for close signal
@@ -113,19 +167,25 @@ void *game_loop(void *args)
       pthread_mutex_unlock(&serverdata->lock);
       if (signal) break;
 
-      sleep(10);
-      for (int i=0; i<MAX_CLIENTS; i++)
+      sleep(20);
+      printf("Client list: [");
+      for (int ix=0; ix<MAX_CLIENTS; ix++)
       {
          pthread_mutex_lock(&serverdata->lock);
-         int fd = serverdata->clientlist[i];
-         if (fd != 0 && i != serverdata->listeneridx)
+         int fd = serverdata->clientlist[ix];
+         printf(" %d", fd);
+         if (fd != 0 && ix != serverdata->listeneridx)
          {
-            char *msg = "pulse";
-            ClientData *client = &serverdata->clientdata[i];
-            reply(fd, client->inputbuf, client->inputcount, msg, 1);
+            char *msg = "[Game message]: pulse";
+            ClientData *client = &serverdata->clientdata[ix];
+            pthread_mutex_lock(&activeplayers->lock);
+            PlayerData *pd = &activeplayers->players[ix];
+            reply(fd, client->inputbuf, client->inputcount, msg, 1, pd);
+            pthread_mutex_unlock(&activeplayers->lock);
          }
          pthread_mutex_unlock(&serverdata->lock);
       }
+      printf("]\n");
    }
    printf("Game thread closing...\n");
    return NULL;

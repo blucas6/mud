@@ -8,6 +8,10 @@ char* lower(char *cmd)
 {
    size_t sz = strlen(cmd);
    char *lcmd = malloc(sz+1);
+   if (!cmd)
+   {
+      perror("Memory error in lower()");
+   }
    for (size_t i=0; i<sz; i++)
    {
       lcmd[i] = tolower(cmd[i]);

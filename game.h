@@ -10,7 +10,6 @@ typedef struct {
 
 typedef struct {
    PlayerData players[10];
-   int count;
    pthread_mutex_t lock;
 } ActivePlayers;
 
@@ -25,7 +24,6 @@ void new_player_init(PlayerData *pd)
 void activeplayers_init(ActivePlayers *ap)
 {
    pthread_mutex_init(&ap->lock, NULL);
-   ap->count = 0;
 }
 
 #endif

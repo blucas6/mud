@@ -63,10 +63,8 @@ void *server_loop(void *args)
    // listens for new connections
    listener = get_listener_socket();
    serverdata->clientlist[0] = listener;
-   serverdata->count++;
    serverdata->listeneridx = 0;
    pthread_mutex_lock(&activeplayers->lock);
-   activeplayers->count++;
    pthread_mutex_unlock(&activeplayers->lock);
 
    // add socket to set
@@ -101,10 +99,19 @@ void *server_loop(void *args)
                if (newfd != -1)
                {
                   printf("Creating new player\n");
+                  
+                  // find index of socket
+                  pthread_mutex_lock(&serverdata->lock);
+                  int index = -1;
+                  for (int ix=0; ix<MAX_CLIENTS; ix++)
+                  {
+                     if (newfd == serverdata->clientlist[ix])
+                        index = ix;
+                  }
+                  if (index == -1) continue;
+                  pthread_mutex_unlock(&serverdata->lock);
                   pthread_mutex_lock(&activeplayers->lock);
-                  int count = activeplayers->count;
-                  PlayerData *pd = &activeplayers->players[count];
-                  activeplayers->count++;
+                  PlayerData *pd = &activeplayers->players[index];
                   new_player_init(pd);
                   process_command(newfd, "greeting", &master, serverdata, pd);
                   pthread_mutex_unlock(&activeplayers->lock);

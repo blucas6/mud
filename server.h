@@ -35,7 +35,7 @@
 #define MAX_W 250
 #define MAX_H 80
 
-#define MAX_CLIENTS 8
+#define MAX_CLIENTS 3
 #define STATUSBAR 30
 
 typedef struct {
@@ -56,7 +56,6 @@ typedef struct {
    int listeneridx;
    int clientlist[MAX_CLIENTS];
    ClientData clientdata[MAX_CLIENTS];
-   int count;
    pthread_mutex_t lock;
 } ServerData;
 
@@ -72,7 +71,6 @@ int serverdata_init(ServerData *serverdata)
 {
    serverdata->signal = 0;
    serverdata->efd = eventfd(0,0);
-   serverdata->count = 0;
    pthread_mutex_init(&serverdata->lock, NULL);
    if (serverdata->efd == -1)
    {
@@ -90,15 +88,16 @@ int serverdata_init(ServerData *serverdata)
 void close_socket(int fd, fd_set *master, ServerData *serverdata)
 {
    printf("Closing socket %d\n", fd);
+   close(fd);
+   // remove from master list
+   FD_CLR(fd, master);
+   // clear data if possible
    for (int i=0; i<MAX_CLIENTS; i++)
    {
       if (serverdata->clientlist[i] == fd)
       {
          serverdata->clientlist[i] = 0;
          clientdata_init(&serverdata->clientdata[i]);
-         close(fd);
-         // remove from master list
-         FD_CLR(fd, master);
       }
    }
 }
@@ -118,26 +117,37 @@ int handle_new_connection(int listener, fd_set *master, int *fdmax, ServerData *
       return -1;
    }
    pthread_mutex_lock(&serverdata->lock);
-   if (serverdata->count >= MAX_CLIENTS)
+   int spot = -1;
+   for (int ix=0; ix<MAX_CLIENTS; ix++)
    {
-      pthread_mutex_unlock(&serverdata->lock);
+      if (serverdata->clientlist[ix] == 0)
+      {
+         spot = ix;
+         break;
+      }
+   }
+
+   if (spot == -1)
+   {
+      // no space
       printf("Warning: cannot handle new connection!\n");
-      printf("List of clients full! %d -> %d\n", newfd, MAX_CLIENTS);
+      printf("List of clients full! (%d)\n", MAX_CLIENTS);
       close_socket(newfd, master, serverdata);
+      pthread_mutex_unlock(&serverdata->lock);
       return -1;
    }
+
+   // assign to the free spot
+   serverdata->clientlist[spot] = newfd;
+   serverdata->clientdata[spot].width = 0;
+   serverdata->clientdata[spot].height = 0;
+   serverdata->clientdata[spot].inputcount = 0;
    // add valid client to master list
    FD_SET(newfd, master);
    if (newfd > *fdmax)
       *fdmax = newfd;
 
-   int count = serverdata->count;
    // lock client before editing server data
-   serverdata->clientlist[count] = newfd;
-   serverdata->clientdata[count].width = 0;
-   serverdata->clientdata[count].height = 0;
-   serverdata->clientdata[count].inputcount = 0;
-   serverdata->count++;
    printf("Client List: [");
    for (int i=0; i<MAX_CLIENTS; i++)
    {

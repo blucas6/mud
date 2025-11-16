@@ -104,6 +104,7 @@ void *server_loop(void *args)
                   pthread_mutex_lock(&activeplayers->lock);
                   int count = activeplayers->count;
                   PlayerData *pd = &activeplayers->players[count];
+                  activeplayers->count++;
                   new_player_init(pd);
                   process_command(newfd, "greeting", &master, serverdata, pd);
                   pthread_mutex_unlock(&activeplayers->lock);

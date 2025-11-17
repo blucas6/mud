@@ -4,6 +4,7 @@
 #include "manager.h"
 #include "game.h"
 #include "server.h"
+#include "room.h"
 
 int main(void)
 {
@@ -14,6 +15,8 @@ int main(void)
    }
 
    activeplayers_init(&threadargs.activeplayers);
+
+   map_init(&threadargs.startroom);
 
    pthread_t game_thread, server_thread;
    pthread_create(&server_thread, NULL, server_loop, &threadargs);

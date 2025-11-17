@@ -172,10 +172,11 @@ int handle_new_connection(int listener, fd_set *master, int *fdmax, ServerData *
 }
 
 /* Send back a message to the client with formatting */
-int reply(int fd, char *inputbuffer, int inputcount, char *rmsg, int sendinput, PlayerData *pd)
+int reply(int fd, char *inputbuffer, int inputcount, char *rmsg,
+         int sendinput, PlayerData *pd)
 {
    // total message
-   char msg[256];
+   char msg[500];
    int pos = 0;
 
    msg[pos++] = '\n';

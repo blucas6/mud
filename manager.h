@@ -7,6 +7,7 @@
 typedef struct {
    ServerData serverdata;
    ActivePlayers activeplayers;
+   struct Room startroom;
 } ThreadArgs;
 
 void process_command(int fd, char* cmd, fd_set *master, ServerData *serverdata, PlayerData *pd)
@@ -25,6 +26,12 @@ void process_command(int fd, char* cmd, fd_set *master, ServerData *serverdata, 
       reply(fd, "", 0, response, 0, pd);
       close_socket(fd, master, serverdata);
    }
+   else if (strcmp(usrcmd, "look") == 0)
+   {
+      response = get_nearby_rooms(pd->croom);
+      reply(fd, "", 0, response, 0, pd);
+      free(response);
+   }
    else if (strcmp(usrcmd, "greeting") == 0)
    {
       response = "Hello, you are connected\n\r";
@@ -38,11 +45,20 @@ void process_command(int fd, char* cmd, fd_set *master, ServerData *serverdata, 
    free(usrcmd);
 }
 
+void arrived_inroom(int fd, ClientData *client, PlayerData *pd, struct Room *room)
+{
+   pd->croom = room;
+   char *intro = pd->croom->intro;
+   printf("Room: %s\n", intro);
+   reply(fd, client->inputbuf, client->inputcount, intro, 1, pd);
+}
+
 void *server_loop(void *args)
 {
    ThreadArgs *threadargs = (ThreadArgs*)args;
    ServerData *serverdata = &threadargs->serverdata;
    ActivePlayers *activeplayers = &threadargs->activeplayers;
+   struct Room *startroom = &threadargs->startroom;
 
    printf("Server starting...\n");
 
@@ -99,7 +115,6 @@ void *server_loop(void *args)
                if (newfd != -1)
                {
                   printf("Creating new player\n");
-                  
                   // find index of socket
                   pthread_mutex_lock(&serverdata->lock);
                   int index = -1;
@@ -109,12 +124,13 @@ void *server_loop(void *args)
                         index = ix;
                   }
                   if (index == -1) continue;
-                  pthread_mutex_unlock(&serverdata->lock);
                   pthread_mutex_lock(&activeplayers->lock);
                   PlayerData *pd = &activeplayers->players[index];
                   new_player_init(pd);
                   process_command(newfd, "greeting", &master, serverdata, pd);
+                  arrived_inroom(newfd, &serverdata->clientdata[index], pd, startroom);
                   pthread_mutex_unlock(&activeplayers->lock);
+                  pthread_mutex_unlock(&serverdata->lock);
                }
                else
                {

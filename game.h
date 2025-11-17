@@ -1,11 +1,14 @@
 #ifndef GAME_H
 #define GAME_H
 
+#include "room.h"
+
 typedef struct {
    int health;
    int money;
    int level;
    char name[20];
+   struct Room *croom;
 } PlayerData;
 
 typedef struct {

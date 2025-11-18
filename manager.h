@@ -32,6 +32,26 @@ void process_command(int fd, char* cmd, fd_set *master, ServerData *serverdata, 
       reply(fd, "", 0, response, 0, pd);
       free(response);
    }
+   else if (strcmp(usrcmd, "north") == 0 || strcmp(usrcmd, "n") == 0)
+   {
+      response = move_room("north", pd);
+      reply(fd, "", 0, response, 0, pd);
+   }
+   else if (strcmp(usrcmd, "south") == 0 || strcmp(usrcmd, "s") == 0)
+   {
+      response = move_room("south", pd);
+      reply(fd, "", 0, response, 0, pd);
+   }
+   else if (strcmp(usrcmd, "east") == 0 || strcmp(usrcmd, "e") == 0)
+   {
+      response = move_room("east", pd);
+      reply(fd, "", 0, response, 0, pd);
+   }
+   else if (strcmp(usrcmd, "west") == 0 || strcmp(usrcmd, "w") == 0)
+   {
+      response = move_room("west", pd);
+      reply(fd, "", 0, response, 0, pd);
+   }
    else if (strcmp(usrcmd, "greeting") == 0)
    {
       response = "Hello, you are connected\n\r";

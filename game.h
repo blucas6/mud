@@ -29,4 +29,29 @@ void activeplayers_init(ActivePlayers *ap)
    pthread_mutex_init(&ap->lock, NULL);
 }
 
+char* move_room(char *dir, PlayerData *pd)
+{
+   char *buffer = malloc(ROOMINTRO);
+   if (strcmp(dir, "north") == 0)
+   {
+      if (pd->croom->north != NULL)
+      {
+         snprintf(buffer, ROOMINTRO, "%s", pd->croom->north->intro);
+         pd->croom = pd->croom->north;
+         return buffer;
+      }
+   }
+   else if (strcmp(dir, "south") == 0)
+   {
+      if (pd->croom->south != NULL)
+      {
+         snprintf(buffer, ROOMINTRO, "%s", pd->croom->south->intro);
+         pd->croom = pd->croom->south;
+         return buffer;
+      }
+   }
+   snprintf(buffer, ROOMINTRO, "There is nothing that way.");
+   return buffer;
+}
+
 #endif

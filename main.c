@@ -16,7 +16,8 @@ int main(void)
 
    activeplayers_init(&threadargs.activeplayers);
 
-   map_init(&threadargs.startroom);
+   //map_init(&threadargs.startroom);
+   threadargs.startroom = map_load_file();
 
    pthread_t game_thread, server_thread;
    pthread_create(&server_thread, NULL, server_loop, &threadargs);
@@ -46,4 +47,5 @@ int main(void)
    pthread_mutex_unlock(&threadargs.serverdata.lock);
    pthread_join(server_thread, NULL);
    pthread_join(game_thread, NULL);
+   return 0;
 }

@@ -7,7 +7,7 @@
 typedef struct {
    ServerData serverdata;
    ActivePlayers activeplayers;
-   struct Room startroom;
+   struct Room *startroom;
 } ThreadArgs;
 
 void process_command(int fd, char* cmd, fd_set *master, ServerData *serverdata, PlayerData *pd)
@@ -78,7 +78,7 @@ void *server_loop(void *args)
    ThreadArgs *threadargs = (ThreadArgs*)args;
    ServerData *serverdata = &threadargs->serverdata;
    ActivePlayers *activeplayers = &threadargs->activeplayers;
-   struct Room *startroom = &threadargs->startroom;
+   struct Room *startroom = threadargs->startroom;
 
    printf("Server starting...\n");
 

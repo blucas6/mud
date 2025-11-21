@@ -50,6 +50,24 @@ char* move_room(char *dir, PlayerData *pd)
          return buffer;
       }
    }
+   else if (strcmp(dir, "east") == 0)
+   {
+      if (pd->croom->east != NULL)
+      {
+         snprintf(buffer, ROOMINTRO, "%s", pd->croom->east->intro);
+         pd->croom = pd->croom->east;
+         return buffer;
+      }
+   }
+   else if (strcmp(dir, "west") == 0)
+   {
+      if (pd->croom->west != NULL)
+      {
+         snprintf(buffer, ROOMINTRO, "%s", pd->croom->west->intro);
+         pd->croom = pd->croom->west;
+         return buffer;
+      }
+   }
    snprintf(buffer, ROOMINTRO, "There is nothing that way.");
    return buffer;
 }

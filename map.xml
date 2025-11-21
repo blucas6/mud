@@ -1,0 +1,28 @@
+<map>
+   <!-- 0 -->
+   <room>
+      <name>Town Square</name>
+      <intro>You are at the town square.</intro>
+      <north>1</north>
+      <south>2</south>
+      <east>3</east>
+   </room>
+   <!-- 1 -->
+   <room>
+      <name>Cobble Stone Path</name>
+      <intro>You are on a cobble stone path. Grass is growing between the cobble stones.</intro>
+      <south>0</south>
+   </room>
+   <!-- 2 -->
+   <room>
+      <name>Quiet Inn</name>
+      <intro>You enter the inn, there is a soft candle lighting the entrance. Floorboards creak as you walk around.</intro>
+      <north>0</north>
+   </room>
+   <!-- 3 -->
+   <room>
+      <name>Church Steps</name>
+      <intro>You are at the steps of the Church. The granite steps are old and the gargoyles peer down at you.</intro>
+      <west>0</west>
+   </room>
+</map>
